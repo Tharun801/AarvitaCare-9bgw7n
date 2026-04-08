@@ -12,6 +12,7 @@ import { useApp } from '@/hooks/useApp';
 import { useAlert } from '@/template';
 import { FREQUENCIES, MEDICINE_TYPES } from '@/constants/config';
 import { getAllMedicines } from '@/services/medicineService';
+import { scheduleMedicineReminders, cancelMedicineReminders } from '@/services/notificationService';
 
 export default function AddMedicineScreen() {
   const insets = useSafeAreaInsets();
@@ -84,8 +85,27 @@ export default function AddMedicineScreen() {
 
     if (isEditing) {
       await updateMed(editId, data);
+      // Reschedule notifications with updated times
+      await cancelMedicineReminders(editId);
+      await scheduleMedicineReminders({
+        medicineId: editId,
+        medicineName: data.name,
+        memberName: activeMember.name,
+        dosage: data.dosage,
+        times: data.times,
+        instructions: data.instructions,
+      });
     } else {
-      await addMed(data);
+      const newMed = await addMed(data);
+      // Schedule repeating daily notifications for each time slot
+      await scheduleMedicineReminders({
+        medicineId: newMed.id,
+        medicineName: newMed.name,
+        memberName: activeMember.name,
+        dosage: newMed.dosage,
+        times: newMed.times,
+        instructions: newMed.instructions,
+      });
     }
     setLoading(false);
     router.back();

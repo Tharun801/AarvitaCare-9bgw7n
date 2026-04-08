@@ -23,6 +23,11 @@ import {
   Medicine,
   MedicineLog,
 } from '@/services/medicineService';
+import {
+  cancelMedicineReminders,
+  cancelAllNotifications,
+  rescheduleAllReminders,
+} from '@/services/notificationService';
 
 export interface User {
   id: string;
@@ -202,9 +207,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await initDefaultMember(uid);
     }
     await refreshFamily();
+    // After login, reschedule all existing medicines for the active member
+    try {
+      const members = await getFamilyMembers();
+      const firstMember = members[0];
+      if (firstMember) {
+        const meds = await getMedicines(firstMember.id);
+        await rescheduleAllReminders(meds, firstMember.name);
+      }
+    } catch (e) {
+      console.warn('rescheduleAllReminders on login:', e);
+    }
   }, [refreshFamily]);
 
   const logout = useCallback(async () => {
+    // Cancel all notifications on sign-out
+    await cancelAllNotifications();
     setUser(null);
     await storageSet(STORAGE_KEYS.USER, null);
   }, []);
@@ -241,6 +259,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [refreshMedicines]);
 
   const removeMed = useCallback(async (id: string) => {
+    // Cancel all scheduled notifications for this medicine first
+    await cancelMedicineReminders(id);
     const result = await deleteMedicine(id);
     await refreshMedicines();
     return result;
@@ -264,8 +284,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       supabaseUserId
     );
+
+    // Fire missed-dose notifications + voice alert
+    if (status === 'missed') {
+      const med = medicines.find(m => m.id === medicineId);
+      if (med) {
+        // Instant missed-dose push notification
+        import('@/services/notificationService').then(({ sendMissedDoseAlert, sendFamilyAlert }) => {
+          sendMissedDoseAlert({
+            memberName: activeMember.name,
+            medicineName: med.name,
+            dosage: med.dosage,
+            scheduledTime,
+          }).catch(console.warn);
+          // Family caregiver alert if enabled
+          const caregivers = familyMembers.filter(m => m.isCaregiver && m.id !== activeMember.id);
+          caregivers.forEach(cg =>
+            sendFamilyAlert({
+              patientName: activeMember.name,
+              medicineName: med.name,
+              dosage: med.dosage,
+              scheduledTime,
+              caregiverName: cg.name,
+            }).catch(console.warn)
+          );
+        });
+        // Refill alert: if remaining tablets drop to 3 or below
+        if (med.remainingTablets !== undefined && med.remainingTablets <= 3) {
+          import('@/services/notificationService').then(({ sendRefillAlert }) => {
+            sendRefillAlert({ medicineName: med.name, remainingTablets: med.remainingTablets! }).catch(console.warn);
+          });
+        }
+      }
+    }
+
     await refreshMedicines();
-  }, [activeMember, supabaseUserId, refreshMedicines]);
+  }, [activeMember, supabaseUserId, medicines, familyMembers, refreshMedicines]);
 
   const updateSettings = useCallback(async (s: Partial<AppSettings>) => {
     const updated = { ...settings, ...s };

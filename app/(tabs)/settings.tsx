@@ -1,15 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, Switch, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
-import { useAlert } from '@/template';
+import { useAlert, getSupabaseClient } from '@/template';
 import { LANGUAGES } from '@/constants/config';
 import { speakMessage } from '@/services/voiceService';
 import { triggerAutoCall } from '@/services/callService';
-import { getSupabaseClient } from '@/template';
+import {
+  getScheduledCount,
+  cancelAllNotifications,
+  sendMissedDoseAlert,
+} from '@/services/notificationService';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -18,6 +22,11 @@ export default function SettingsScreen() {
   const { user, settings, updateSettings, logout, activeMember } = useApp();
   const [testingVoice, setTestingVoice] = useState(false);
   const [testingCall, setTestingCall] = useState(false);
+  const [scheduledCount, setScheduledCount] = useState(0);
+
+  useEffect(() => {
+    getScheduledCount().then(setScheduledCount).catch(console.warn);
+  }, []);
 
   const testVoiceReminder = async () => {
     setTestingVoice(true);
@@ -26,6 +35,16 @@ export default function SettingsScreen() {
       settings.defaultLanguage,
     );
     setTestingVoice(false);
+  };
+
+  const testMissedAlert = async () => {
+    await sendMissedDoseAlert({
+      memberName: activeMember?.name || 'You',
+      medicineName: 'Metformin 500mg',
+      dosage: '1 tablet',
+      scheduledTime: '08:00 AM',
+    });
+    showAlert('Test Sent', 'A missed dose notification was sent. Check your notification shade.');
   };
 
   const testAutoCall = async () => {
@@ -45,16 +64,20 @@ export default function SettingsScreen() {
   const handleLogout = () => {
     showAlert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => {
-        const sb = getSupabaseClient();
-        await sb.auth.signOut();
-        await logout();
-        router.replace('/login');
-      } },
+      {
+        text: 'Sign Out', style: 'destructive', onPress: async () => {
+          const sb = getSupabaseClient();
+          await sb.auth.signOut();
+          await logout();
+          router.replace('/login');
+        }
+      },
     ]);
   };
 
-  const SettingRow = ({ icon, title, subtitle, value, onValueChange, onPress, danger }: {
+  const SettingRow = ({
+    icon, title, subtitle, value, onValueChange, onPress, danger, badge,
+  }: {
     icon: string;
     title: string;
     subtitle?: string;
@@ -62,11 +85,12 @@ export default function SettingsScreen() {
     onValueChange?: (v: boolean) => void;
     onPress?: () => void;
     danger?: boolean;
+    badge?: string;
   }) => (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.settingRow, pressed && onPress && { opacity: 0.7 }]}
-      disabled={!onPress && !onValueChange}
+      disabled={!onPress && onValueChange === undefined}
     >
       <View style={[styles.settingIcon, { backgroundColor: danger ? Colors.errorLight : Colors.primaryLight }]}>
         <MaterialIcons name={icon as any} size={20} color={danger ? Colors.error : Colors.primary} />
@@ -75,6 +99,11 @@ export default function SettingsScreen() {
         <Text style={[styles.settingTitle, danger && { color: Colors.error }]}>{title}</Text>
         {subtitle ? <Text style={styles.settingSubtitle}>{subtitle}</Text> : null}
       </View>
+      {badge ? (
+        <View style={styles.countBadge}>
+          <Text style={styles.countBadgeText}>{badge}</Text>
+        </View>
+      ) : null}
       {onValueChange !== undefined ? (
         <Switch
           value={value}
@@ -103,11 +132,30 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{user?.name || 'User'}</Text>
-            <Text style={styles.profilePhone}>+91 {user?.phone || '—'}</Text>
+            <Text style={styles.profileEmail}>{user?.phone || '—'}</Text>
           </View>
           <View style={styles.profileBadge}>
             <Text style={styles.profileBadgeText}>Family Admin</Text>
           </View>
+        </View>
+
+        {/* Notification status banner */}
+        <View style={styles.notifBanner}>
+          <View style={styles.notifBannerLeft}>
+            <MaterialIcons name="notifications-active" size={22} color={Colors.primary} />
+            <View>
+              <Text style={styles.notifBannerTitle}>Active Reminders</Text>
+              <Text style={styles.notifBannerSub}>
+                {scheduledCount > 0
+                  ? `${scheduledCount} notification${scheduledCount !== 1 ? 's' : ''} scheduled daily`
+                  : 'No reminders scheduled yet'}
+              </Text>
+            </View>
+          </View>
+          <View style={[
+            styles.notifDot,
+            { backgroundColor: scheduledCount > 0 ? Colors.success : Colors.textMuted },
+          ]} />
         </View>
 
         {/* Notifications */}
@@ -177,9 +225,16 @@ export default function SettingsScreen() {
         <View style={styles.settingGroup}>
           <SettingRow
             icon="volume-up"
-            title={testingVoice ? 'Playing...' : 'Test Voice Reminder'}
-            subtitle="Hear a sample voice reminder"
+            title={testingVoice ? 'Speaking...' : 'Test Voice Reminder'}
+            subtitle="Hear a sample in your selected language"
             onPress={testingVoice ? undefined : testVoiceReminder}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon="notifications-none"
+            title="Test Missed Dose Alert"
+            subtitle="Send a sample missed-dose notification"
+            onPress={testMissedAlert}
           />
           <View style={styles.divider} />
           <SettingRow
@@ -254,7 +309,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.secondary,
     borderRadius: Radius.xl,
     padding: Spacing[4],
-    marginBottom: Spacing[5],
+    marginBottom: Spacing[4],
     gap: Spacing[3],
     ...Shadow.lg,
   },
@@ -266,7 +321,7 @@ const styles = StyleSheet.create({
   profileAvatarText: { color: Colors.white, fontSize: Typography.lg, fontWeight: Typography.bold },
   profileInfo: { flex: 1 },
   profileName: { color: Colors.white, fontSize: Typography.md, fontWeight: Typography.bold },
-  profilePhone: { color: 'rgba(255,255,255,0.6)', fontSize: Typography.sm, marginTop: 2 },
+  profileEmail: { color: 'rgba(255,255,255,0.6)', fontSize: Typography.sm, marginTop: 2 },
   profileBadge: {
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing[3],
@@ -274,12 +329,29 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
   },
   profileBadgeText: { color: Colors.white, fontSize: Typography.xs, fontWeight: Typography.semibold },
+
+  notifBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.primaryLight,
+    borderRadius: Radius.lg,
+    padding: Spacing[4],
+    marginBottom: Spacing[4],
+    borderWidth: 1,
+    borderColor: Colors.primaryMuted,
+  },
+  notifBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing[3] },
+  notifBannerTitle: { fontSize: Typography.base, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  notifBannerSub: { fontSize: Typography.sm, color: Colors.textSecondary, marginTop: 2 },
+  notifDot: { width: 10, height: 10, borderRadius: 5 },
+
   sectionLabel: {
     fontSize: Typography.xs,
     fontWeight: Typography.bold,
     color: Colors.textMuted,
     letterSpacing: 1,
-    marginTop: Spacing[4],
+    marginTop: Spacing[3],
     marginBottom: Spacing[2],
     paddingLeft: Spacing[1],
   },
@@ -305,6 +377,14 @@ const styles = StyleSheet.create({
   settingTitle: { fontSize: Typography.base, fontWeight: Typography.medium, color: Colors.textPrimary },
   settingSubtitle: { fontSize: Typography.sm, color: Colors.textMuted, marginTop: 2 },
   divider: { height: 1, backgroundColor: Colors.borderLight, marginHorizontal: Spacing[4] },
+  countBadge: {
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    marginRight: Spacing[1],
+  },
+  countBadgeText: { fontSize: Typography.xs, color: Colors.primary, fontWeight: Typography.bold },
   langTitle: {
     fontSize: Typography.sm,
     fontWeight: Typography.semibold,
@@ -327,10 +407,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     alignItems: 'center',
   },
-  langChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
+  langChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   langLabel: { fontSize: Typography.sm, fontWeight: Typography.semibold, color: Colors.textPrimary },
   langLabelActive: { color: Colors.white },
   langSub: { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 1 },
