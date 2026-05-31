@@ -246,9 +246,9 @@ export default function SettingsScreen() {
           <View style={styles.divider} />
           <SettingRow
             icon="document-scanner"
-            title="Scan Prescription (OCR)"
-            subtitle="Extract medicine from prescription image"
-            onPress={() => showAlert('OCR Scanner', 'Prescription scanner uses ML Kit OCR to extract medicine name, dosage and duration. Integration coming in next version!', [{ text: 'OK' }])}
+            title="Scan Prescription (AI)"
+            subtitle="Extract medicines using Gemini Vision AI"
+            onPress={() => router.push('/scan-prescription')}
           />
         </View>
 

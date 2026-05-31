@@ -65,6 +65,7 @@ export default function RootLayout() {
             <Stack.Screen name="add-medicine" options={{ presentation: 'modal', headerShown: false }} />
             <Stack.Screen name="add-family" options={{ presentation: 'modal', headerShown: false }} />
             <Stack.Screen name="medicine-detail" options={{ headerShown: false }} />
+            <Stack.Screen name="scan-prescription" options={{ headerShown: false }} />
           </Stack>
         </AppProvider>
       </SafeAreaProvider>

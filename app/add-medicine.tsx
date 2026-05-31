@@ -17,7 +17,15 @@ import { scheduleMedicineReminders, cancelMedicineReminders } from '@/services/n
 export default function AddMedicineScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const { editId, prefillName, prefillDosage, prefillFrequency, prefillDuration, prefillInstructions, prefillType } = useLocalSearchParams<{
+    editId?: string;
+    prefillName?: string;
+    prefillDosage?: string;
+    prefillFrequency?: string;
+    prefillDuration?: string;
+    prefillInstructions?: string;
+    prefillType?: string;
+  }>();
   const { showAlert } = useAlert();
   const { activeMember, addMed, updateMed } = useApp();
 
@@ -48,8 +56,20 @@ export default function AddMedicineScreen() {
           setInstructions(m.instructions || '');
         }
       });
+    } else if (prefillName) {
+      // Pre-fill from prescription scanner
+      if (prefillName) setName(prefillName);
+      if (prefillDosage) setDosage(prefillDosage);
+      if (prefillType) setType(prefillType);
+      if (prefillFrequency) {
+        setFrequency(prefillFrequency);
+        const freq = FREQUENCIES.find(f => f.id === prefillFrequency);
+        if (freq && freq.times.length > 0) setTimes(freq.times);
+      }
+      if (prefillDuration) setDuration(prefillDuration);
+      if (prefillInstructions) setInstructions(prefillInstructions);
     }
-  }, [editId]);
+  }, [editId, prefillName]);
 
   const handleFrequencySelect = (freqId: string) => {
     setFrequency(freqId);

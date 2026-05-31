@@ -40,12 +40,21 @@ export default function MedicinesScreen() {
             <Text style={styles.headerSub}>for {activeMember.name}</Text>
           ) : null}
         </View>
-        <Pressable
-          onPress={() => router.push('/add-medicine')}
-          style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
-        >
-          <MaterialIcons name="add" size={22} color={Colors.white} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => router.push('/scan-prescription')}
+            style={({ pressed }) => [styles.scanBtn, pressed && { opacity: 0.8 }]}
+          >
+            <MaterialIcons name="document-scanner" size={18} color={Colors.primary} />
+            <Text style={styles.scanBtnText}>Scan Rx</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/add-medicine')}
+            style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
+          >
+            <MaterialIcons name="add" size={22} color={Colors.white} />
+          </Pressable>
+        </View>
       </View>
 
       {/* Search */}
@@ -140,6 +149,14 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary },
   headerSub: { fontSize: Typography.sm, color: Colors.textMuted },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing[2] },
+  scanBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: Spacing[3], paddingVertical: Spacing[2],
+    borderRadius: Radius.full, borderWidth: 1.5, borderColor: Colors.primaryMuted,
+  },
+  scanBtnText: { fontSize: Typography.xs, color: Colors.primary, fontWeight: Typography.semibold },
   addBtn: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: Colors.primary,
