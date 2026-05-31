@@ -28,6 +28,7 @@ import {
   cancelAllNotifications,
   rescheduleAllReminders,
 } from '@/services/notificationService';
+import { unregisterBackgroundTask } from '@/services/backgroundTaskService';
 
 export interface User {
   id: string;
@@ -221,8 +222,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [refreshFamily]);
 
   const logout = useCallback(async () => {
-    // Cancel all notifications on sign-out
+    // Cancel all notifications and background tasks on sign-out
     await cancelAllNotifications();
+    await unregisterBackgroundTask();
     setUser(null);
     await storageSet(STORAGE_KEYS.USER, null);
   }, []);

@@ -12,6 +12,9 @@ import { AppProvider } from '@/contexts/AppContext';
 import {
   requestNotificationPermission,
 } from '@/services/notificationService';
+import {
+  registerBackgroundTask,
+} from '@/services/backgroundTaskService';
 import { speakReminder, speakMissedAlert } from '@/services/voiceService';
 
 export default function RootLayout() {
@@ -19,8 +22,12 @@ export default function RootLayout() {
   const responseListenerRef = useRef<Notifications.EventSubscription | null>(null);
 
   useEffect(() => {
-    // 1. Request permission + create Android channels
-    requestNotificationPermission().catch(console.warn);
+    // 1. Request permission + create Android channels, then register background task
+    requestNotificationPermission()
+      .then(granted => {
+        if (granted) return registerBackgroundTask();
+      })
+      .catch(console.warn);
 
     // 2. Foreground notification listener — when notification arrives while app is open
     notifListenerRef.current = Notifications.addNotificationReceivedListener(notification => {

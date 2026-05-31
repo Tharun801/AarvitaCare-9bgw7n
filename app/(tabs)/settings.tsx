@@ -14,6 +14,11 @@ import {
   cancelAllNotifications,
   sendMissedDoseAlert,
 } from '@/services/notificationService';
+import {
+  getBackgroundTaskStatus,
+  registerBackgroundTask,
+  detectAndMarkMissedDoses,
+} from '@/services/backgroundTaskService';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -22,11 +27,42 @@ export default function SettingsScreen() {
   const { user, settings, updateSettings, logout, activeMember } = useApp();
   const [testingVoice, setTestingVoice] = useState(false);
   const [testingCall, setTestingCall] = useState(false);
+  const [runningBgTask, setRunningBgTask] = useState(false);
   const [scheduledCount, setScheduledCount] = useState(0);
+  const [bgTaskStatus, setBgTaskStatus] = useState<{
+    isRegistered: boolean;
+    fetchStatusLabel: string;
+  } | null>(null);
 
   useEffect(() => {
     getScheduledCount().then(setScheduledCount).catch(console.warn);
+    getBackgroundTaskStatus().then(setBgTaskStatus).catch(console.warn);
   }, []);
+
+  const runBgTaskNow = async () => {
+    setRunningBgTask(true);
+    try {
+      const result = await detectAndMarkMissedDoses();
+      showAlert(
+        'Background Check Complete',
+        `Checked all family medicine schedules.\n\nMissed doses detected & logged: ${result.processed}\nErrors: ${result.errors}`,
+      );
+      // Refresh status
+      const status = await getBackgroundTaskStatus();
+      setBgTaskStatus(status);
+    } catch (err: any) {
+      showAlert('Check Failed', err.message || 'Unable to run missed dose check');
+    } finally {
+      setRunningBgTask(false);
+    }
+  };
+
+  const reRegisterBgTask = async () => {
+    await registerBackgroundTask();
+    const status = await getBackgroundTaskStatus();
+    setBgTaskStatus(status);
+    showAlert('Background Task', status.isRegistered ? 'Task registered successfully.' : 'Registration failed — check device settings.');
+  };
 
   const testVoiceReminder = async () => {
     setTestingVoice(true);
@@ -136,6 +172,71 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.profileBadge}>
             <Text style={styles.profileBadgeText}>Family Admin</Text>
+          </View>
+        </View>
+
+        {/* Background task status card */}
+        <View style={styles.bgTaskCard}>
+          <View style={styles.bgTaskRow}>
+            <View style={styles.bgTaskIconBg}>
+              <MaterialIcons name="schedule" size={20} color={Colors.secondary} />
+            </View>
+            <View style={styles.bgTaskText}>
+              <Text style={styles.bgTaskTitle}>Auto Missed-Dose Detection</Text>
+              <Text style={styles.bgTaskSub}>
+                Runs every 15 min · Marks overdue doses · Alerts caregivers
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.bgTaskStatusRow}>
+            <View style={styles.bgTaskBadge}>
+              <View style={[
+                styles.bgStatusDot,
+                { backgroundColor: bgTaskStatus?.isRegistered ? Colors.success : Colors.error }
+              ]} />
+              <Text style={[
+                styles.bgStatusLabel,
+                { color: bgTaskStatus?.isRegistered ? Colors.success : Colors.error }
+              ]}>
+                {bgTaskStatus?.isRegistered ? 'Active' : 'Inactive'}
+              </Text>
+            </View>
+            <Text style={styles.bgFetchStatus}>
+              OS status: {bgTaskStatus?.fetchStatusLabel || 'Loading...'}
+            </Text>
+          </View>
+
+          <View style={styles.bgTaskBtnRow}>
+            <Pressable
+              onPress={runningBgTask ? undefined : runBgTaskNow}
+              style={({ pressed }) => [
+                styles.bgTaskBtn,
+                { backgroundColor: Colors.primaryLight, borderColor: Colors.primaryMuted },
+                pressed && !runningBgTask && { opacity: 0.75 },
+              ]}
+            >
+              {runningBgTask
+                ? <MaterialIcons name="hourglass-empty" size={15} color={Colors.primary} />
+                : <MaterialIcons name="play-arrow" size={15} color={Colors.primary} />}
+              <Text style={[styles.bgTaskBtnText, { color: Colors.primary }]}>
+                {runningBgTask ? 'Checking...' : 'Run Check Now'}
+              </Text>
+            </Pressable>
+
+            {!bgTaskStatus?.isRegistered ? (
+              <Pressable
+                onPress={reRegisterBgTask}
+                style={({ pressed }) => [
+                  styles.bgTaskBtn,
+                  { backgroundColor: Colors.secondaryMuted, borderColor: Colors.border },
+                  pressed && { opacity: 0.75 },
+                ]}
+              >
+                <MaterialIcons name="refresh" size={15} color={Colors.secondary} />
+                <Text style={[styles.bgTaskBtnText, { color: Colors.secondary }]}>Re-register</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
 
@@ -412,4 +513,39 @@ const styles = StyleSheet.create({
   langLabelActive: { color: Colors.white },
   langSub: { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 1 },
   footer: { textAlign: 'center', color: Colors.textMuted, fontSize: Typography.sm, marginTop: Spacing[4] },
+
+  // Background task card
+  bgTaskCard: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing[4],
+    marginBottom: Spacing[4],
+    borderWidth: 1.5,
+    borderColor: Colors.secondaryMuted,
+    ...Shadow.sm,
+  },
+  bgTaskRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing[3], marginBottom: Spacing[3] },
+  bgTaskIconBg: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: Colors.secondaryMuted,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bgTaskText: { flex: 1 },
+  bgTaskTitle: { fontSize: Typography.base, fontWeight: Typography.semibold, color: Colors.textPrimary },
+  bgTaskSub: { fontSize: Typography.sm, color: Colors.textMuted, marginTop: 2, lineHeight: 18 },
+  bgTaskStatusRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: Spacing[3],
+  },
+  bgTaskBadge: { flexDirection: 'row', alignItems: 'center', gap: Spacing[1] },
+  bgStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  bgStatusLabel: { fontSize: Typography.sm, fontWeight: Typography.bold },
+  bgFetchStatus: { fontSize: Typography.xs, color: Colors.textMuted },
+  bgTaskBtnRow: { flexDirection: 'row', gap: Spacing[2] },
+  bgTaskBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: Spacing[2], borderRadius: Radius.md,
+    borderWidth: 1.5,
+  },
+  bgTaskBtnText: { fontSize: Typography.sm, fontWeight: Typography.semibold },
 });
