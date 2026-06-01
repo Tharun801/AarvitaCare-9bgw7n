@@ -287,6 +287,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       supabaseUserId
     );
 
+    // Auto-decrement remaining tablets when a dose is taken
+    if (status === 'taken') {
+      const med = medicines.find(m => m.id === medicineId);
+      if (med && med.remainingTablets !== undefined && med.remainingTablets > 0) {
+        const newRemaining = med.remainingTablets - 1;
+        await updateMedicine(medicineId, { remainingTablets: newRemaining });
+        // Refill alert: if remaining drops to 5 or fewer
+        if (newRemaining <= 5) {
+          import('@/services/notificationService').then(({ sendRefillAlert }) => {
+            sendRefillAlert({ medicineName: med.name, remainingTablets: newRemaining }).catch(console.warn);
+          });
+        }
+      }
+    }
+
     // Fire missed-dose notifications + voice alert
     if (status === 'missed') {
       const med = medicines.find(m => m.id === medicineId);
@@ -311,12 +326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }).catch(console.warn)
           );
         });
-        // Refill alert: if remaining tablets drop to 3 or below
-        if (med.remainingTablets !== undefined && med.remainingTablets <= 3) {
-          import('@/services/notificationService').then(({ sendRefillAlert }) => {
-            sendRefillAlert({ medicineName: med.name, remainingTablets: med.remainingTablets! }).catch(console.warn);
-          });
-        }
+
       }
     }
 
