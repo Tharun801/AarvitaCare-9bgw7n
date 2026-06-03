@@ -692,8 +692,61 @@ export default function FamilyScreen() {
 
   const visibleFeed = showAllFeed ? missedFeed : missedFeed.slice(0, 5);
 
+  const handleSOS = () => {
+    const contact = activeMember?.emergencyContact?.replace(/\D/g, '') || '';
+    if (!contact) {
+      showAlert(
+        'No Emergency Contact',
+        `Add an emergency contact for ${activeMember?.name || 'this member'} in their profile to enable SOS calling.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Add Now',
+            onPress: () => activeMember && router.push({ pathname: '/add-family', params: { editId: activeMember.id } }),
+          },
+        ]
+      );
+      return;
+    }
+    showAlert(
+      '🆘 Emergency SOS',
+      `Call emergency contact for ${activeMember?.name}?\n\nNumber: ${activeMember?.emergencyContact}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Call Now',
+          style: 'destructive',
+          onPress: () => {
+            Linking.openURL(`tel:${contact}`).catch(() =>
+              showAlert('Call Failed', 'Unable to initiate call. Please check device settings.')
+            );
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* SOS Floating Button */}
+      <Animated.View
+        entering={FadeIn.delay(600)}
+        style={[sosStyles.fab, { bottom: insets.bottom + 90 }]}
+      >
+        <Pressable
+          onPress={handleSOS}
+          style={({ pressed }) => [
+            sosStyles.fabBtn,
+            pressed && { transform: [{ scale: 0.93 }], opacity: 0.85 },
+          ]}
+          hitSlop={8}
+          accessibilityLabel="SOS Emergency Call"
+        >
+          <MaterialIcons name="emergency" size={22} color={Colors.white} />
+          <Text style={sosStyles.fabText}>SOS</Text>
+        </Pressable>
+      </Animated.View>
+
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -865,6 +918,35 @@ function formatTime12(time: string): string {
   const hour = h % 12 || 12;
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
 }
+
+// ─── SOS FAB Styles ──────────────────────────────────────────────────────────
+const sosStyles = StyleSheet.create({
+  fab: {
+    position: 'absolute',
+    right: Spacing[4],
+    zIndex: 99,
+  },
+  fabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1],
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+    borderRadius: Radius.full,
+    backgroundColor: Colors.error,
+    shadowColor: Colors.error,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  fabText: {
+    color: Colors.white,
+    fontWeight: Typography.extrabold,
+    fontSize: Typography.base,
+    letterSpacing: 1,
+  },
+});
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({

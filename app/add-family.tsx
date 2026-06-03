@@ -153,15 +153,21 @@ export default function AddFamilyScreen() {
 
           {/* Emergency Contact */}
           <View style={styles.field}>
-            <Text style={styles.label}>Emergency Contact (Caregiver's Number)</Text>
+            <View style={styles.emergencyLabelRow}>
+              <MaterialIcons name="emergency" size={16} color={Colors.error} />
+              <Text style={[styles.label, { color: Colors.error, marginBottom: 0 }]}>SOS Emergency Contact</Text>
+            </View>
+            <Text style={styles.emergencyHint}>
+              Called instantly when SOS button is pressed for this member
+            </Text>
             <TextInput
-              style={styles.input}
-              placeholder="Caregiver mobile number"
+              style={[styles.input, styles.emergencyInput]}
+              placeholder="Emergency caregiver number"
               placeholderTextColor={Colors.textMuted}
               value={emergency}
               onChangeText={t => setEmergency(t.replace(/\D/g, '').slice(0, 10))}
               keyboardType="phone-pad"
-              accessibilityLabel="Emergency contact"
+              accessibilityLabel="SOS emergency contact"
             />
           </View>
 
@@ -304,6 +310,22 @@ const styles = StyleSheet.create({
   },
   langChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   langLabel: { fontSize: Typography.sm, color: Colors.textMuted, fontWeight: Typography.medium },
+  emergencyLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1],
+    marginBottom: Spacing[1],
+  },
+  emergencyHint: {
+    fontSize: Typography.xs,
+    color: Colors.textMuted,
+    marginBottom: Spacing[2],
+    lineHeight: 17,
+  },
+  emergencyInput: {
+    borderColor: Colors.error + '55',
+    borderWidth: 1.5,
+  },
   voiceRow: { flexDirection: 'row', gap: Spacing[3] },
   voiceBtn: {
     flex: 1,
