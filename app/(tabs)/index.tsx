@@ -29,6 +29,87 @@ import {
   Badge, evaluateBadges, getEarnedBadges, getAllBadges,
   rarityColor, rarityLabel,
 } from '@/services/badgeService';
+import { getInsight, cacheInsight } from '@/services/insightService';
+import { getSupabaseClient } from '@/template';
+import { FunctionsHttpError } from '@supabase/supabase-js';
+
+// ─── Health Insight Card ─────────────────────────────────────────────────────
+function HealthInsightCard({
+  insight,
+  loading,
+  onRefresh,
+}: {
+  insight: string;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const shimmer = useSharedValue(0);
+
+  useEffect(() => {
+    if (loading) {
+      shimmer.value = withSequence(
+        withTiming(1, { duration: 700 }),
+        withTiming(0, { duration: 700 }),
+        withTiming(1, { duration: 700 }),
+        withTiming(0, { duration: 700 }),
+        withTiming(1, { duration: 700 }),
+        withTiming(0, { duration: 700 }),
+      );
+    } else {
+      shimmer.value = withTiming(0, { duration: 300 });
+    }
+  }, [loading]);
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    opacity: 0.4 + shimmer.value * 0.4,
+  }));
+
+  return (
+    <Animated.View entering={FadeInDown.delay(100).springify()}>
+      <View style={insightStyles.card}>
+        {/* Header */}
+        <View style={insightStyles.header}>
+          <View style={insightStyles.iconWrap}>
+            <MaterialIcons name="auto-awesome" size={18} color="#fff" />
+          </View>
+          <Text style={insightStyles.title}>Today's Health Insight</Text>
+          <Pressable
+            onPress={onRefresh}
+            style={({ pressed }) => [insightStyles.refreshBtn, pressed && { opacity: 0.6 }]}
+            hitSlop={8}
+            disabled={loading}
+          >
+            <MaterialIcons
+              name="refresh"
+              size={18}
+              color={loading ? Colors.textMuted : Colors.primary}
+            />
+          </Pressable>
+        </View>
+
+        {/* Content */}
+        {loading ? (
+          <View style={insightStyles.shimbleBlock}>
+            <Animated.View style={[insightStyles.shimbleLine, shimmerStyle, { width: '95%' }]} />
+            <Animated.View style={[insightStyles.shimbleLine, shimmerStyle, { width: '80%', marginTop: 8 }]} />
+          </View>
+        ) : insight ? (
+          <Animated.View entering={FadeIn.duration(400)}>
+            <Text style={insightStyles.text}>{insight}</Text>
+          </Animated.View>
+        ) : (
+          <Text style={insightStyles.emptyText}>Tap refresh to generate your personalised tip.</Text>
+        )}
+
+        {/* AI badge */}
+        <View style={insightStyles.aiBadge}>
+          <MaterialIcons name="smart-toy" size={11} color={Colors.primary} />
+          <Text style={insightStyles.aiBadgeText}>Powered by OnSpace AI</Text>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
 
 // ─── Badge Celebration Modal ──────────────────────────────────────────────────
 function CelebrationModal({
@@ -271,6 +352,9 @@ export default function DashboardScreen() {
   } = useApp();
 
   const [refreshing, setRefreshing] = React.useState(false);
+  const [insightText, setInsightText] = useState('');
+  const [insightLoading, setInsightLoading] = useState(false);
+  const insightFetchedRef = useRef(false);
   const [earnedBadges, setEarnedBadges] = useState<Badge[]>([]);
   const [celebQueue, setCelebQueue] = useState<Badge[]>([]);
   const [currentCeleb, setCurrentCeleb] = useState<Badge | null>(null);
@@ -283,6 +367,69 @@ export default function DashboardScreen() {
     getEarnedBadges().then(setEarnedBadges).catch(console.warn);
     getAllBadges().then(setAllBadges).catch(console.warn);
   }, []);
+
+  // Fetch health insight — once per day, cached in AsyncStorage
+  const fetchInsight = useCallback(async (forceRefresh = false) => {
+    if (!activeMember) return;
+    setInsightLoading(true);
+    try {
+      // Check cache first (unless forced)
+      if (!forceRefresh) {
+        const cached = await getInsight(activeMember.id);
+        if (cached) {
+          setInsightText(cached);
+          setInsightLoading(false);
+          return;
+        }
+      }
+
+      const sb = getSupabaseClient();
+      const medNames = medicines
+        .filter(m => m.memberId === activeMember.id && m.active)
+        .map(m => m.name);
+
+      const { data, error } = await sb.functions.invoke('health-insight', {
+        body: {
+          memberName: activeMember.name,
+          streak: adherenceStats.streak,
+          adherencePct: adherenceStats.percentage,
+          takenToday: todaySchedule.filter(s => s.status === 'taken').length,
+          missedToday: todaySchedule.filter(s => s.status === 'missed').length,
+          pendingToday: todaySchedule.filter(s => s.status === 'upcoming').length,
+          medicineNames: medNames,
+        },
+      });
+
+      if (error) {
+        let msg = error.message;
+        if (error instanceof FunctionsHttpError) {
+          try { msg = await error.context?.text() ?? msg; } catch {}
+        }
+        console.warn('health-insight error:', msg);
+        setInsightLoading(false);
+        return;
+      }
+
+      const insight: string = data?.insight ?? '';
+      if (insight) {
+        setInsightText(insight);
+        await cacheInsight(activeMember.id, insight);
+      }
+    } catch (e) {
+      console.warn('fetchInsight:', e);
+    } finally {
+      setInsightLoading(false);
+    }
+  }, [activeMember, adherenceStats, todaySchedule, medicines]);
+
+  // Auto-fetch once when stats are loaded
+  useEffect(() => {
+    if (!activeMember) return;
+    if (insightFetchedRef.current) return;
+    if (adherenceStats.percentage === 0 && adherenceStats.streak === 0 && todaySchedule.length === 0) return;
+    insightFetchedRef.current = true;
+    fetchInsight();
+  }, [activeMember?.id, adherenceStats.percentage, adherenceStats.streak]);
 
   // Evaluate badges whenever adherence stats or schedule changes
   useEffect(() => {
@@ -333,6 +480,7 @@ export default function DashboardScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    insightFetchedRef.current = false;
     await refreshMedicines();
     const allEarned = await getEarnedBadges();
     setEarnedBadges(allEarned);
@@ -426,6 +574,13 @@ export default function DashboardScreen() {
             </View>
           </View>
         </View>
+
+        {/* ── AI HEALTH INSIGHT ── */}
+        <HealthInsightCard
+          insight={insightText}
+          loading={insightLoading}
+          onRefresh={() => fetchInsight(true)}
+        />
 
         {/* ── BADGE STRIP ── */}
         {earnedBadges.length > 0 ? (
@@ -805,6 +960,79 @@ const celebStyles = StyleSheet.create({
   },
   closeBtnText: {
     color: Colors.white, fontSize: Typography.base, fontWeight: Typography.bold,
+  },
+});
+
+// Health Insight Card styles
+const insightStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.xl,
+    padding: Spacing[4],
+    marginBottom: Spacing[4],
+    borderWidth: 1.5,
+    borderColor: Colors.primaryLight,
+    ...Shadow.md,
+    overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    marginBottom: Spacing[3],
+  },
+  iconWrap: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  title: {
+    flex: 1,
+    fontSize: Typography.base,
+    fontWeight: Typography.bold,
+    color: Colors.textPrimary,
+  },
+  refreshBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: Colors.primaryLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  text: {
+    fontSize: Typography.base,
+    color: Colors.textSecondary,
+    lineHeight: Typography.base * 1.65,
+    marginBottom: Spacing[3],
+  },
+  emptyText: {
+    fontSize: Typography.sm,
+    color: Colors.textMuted,
+    lineHeight: 20,
+    marginBottom: Spacing[3],
+    fontStyle: 'italic',
+  },
+  shimbleBlock: {
+    marginBottom: Spacing[3],
+    gap: 0,
+  },
+  shimbleLine: {
+    height: 14,
+    backgroundColor: Colors.primaryLight,
+    borderRadius: Radius.sm,
+  },
+  aiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+  },
+  aiBadgeText: {
+    fontSize: Typography.xs,
+    color: Colors.primary,
+    fontWeight: Typography.semibold,
   },
 });
 
