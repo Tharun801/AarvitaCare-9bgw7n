@@ -8,7 +8,7 @@
  */
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, RefreshControl, Modal,
+  View, Text, ScrollView, StyleSheet, Pressable, RefreshControl, Modal, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -32,6 +32,84 @@ import {
 import { getInsight, cacheInsight } from '@/services/insightService';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
+
+// ─── Refill Alert Strip ──────────────────────────────────────────────────────
+function RefillAlertStrip({
+  medicines,
+  onCall,
+}: {
+  medicines: Array<{ id: string; name: string; remainingTablets?: number }>;
+  onCall: (medicineName: string) => void;
+}) {
+  const lowStock = medicines.filter(
+    m => m.remainingTablets !== undefined && m.remainingTablets !== null && m.remainingTablets <= 10
+  );
+  if (lowStock.length === 0) return null;
+
+  return (
+    <Animated.View entering={FadeInDown.delay(50).springify()}>
+      <View style={refillStyles.container}>
+        {/* Header */}
+        <View style={refillStyles.header}>
+          <View style={refillStyles.iconWrap}>
+            <MaterialIcons name="local-pharmacy" size={14} color="#fff" />
+          </View>
+          <Text style={refillStyles.headerTitle}>Refill Alert</Text>
+          <View style={refillStyles.countPill}>
+            <Text style={refillStyles.countPillText}>{lowStock.length} low</Text>
+          </View>
+        </View>
+
+        {/* Horizontal strip */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={refillStyles.strip}
+        >
+          {lowStock.map((med, i) => {
+            const critical = (med.remainingTablets ?? 0) <= 5;
+            const badgeColor = critical ? Colors.error : Colors.warning;
+            const badgeBg = critical ? Colors.errorLight : '#FFF3E0';
+            return (
+              <Animated.View key={med.id} entering={ZoomIn.delay(i * 60).springify()}>
+                <View style={[refillStyles.card, { borderColor: badgeColor + '44' }]}>
+                  {/* Medicine name */}
+                  <Text style={refillStyles.medName} numberOfLines={1}>{med.name}</Text>
+
+                  {/* Remaining count badge */}
+                  <View style={[refillStyles.countBadge, { backgroundColor: badgeBg, borderColor: badgeColor + '55' }]}>
+                    <MaterialIcons
+                      name={critical ? 'warning' : 'info'}
+                      size={11}
+                      color={badgeColor}
+                    />
+                    <Text style={[refillStyles.countBadgeText, { color: badgeColor }]}>
+                      {med.remainingTablets} left
+                    </Text>
+                  </View>
+
+                  {/* Call pharmacy */}
+                  <Pressable
+                    onPress={() => onCall(med.name)}
+                    style={({ pressed }) => [
+                      refillStyles.callBtn,
+                      { backgroundColor: badgeColor },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    hitSlop={4}
+                  >
+                    <MaterialIcons name="call" size={11} color="#fff" />
+                    <Text style={refillStyles.callBtnText}>Call Pharmacy</Text>
+                  </Pressable>
+                </View>
+              </Animated.View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </Animated.View>
+  );
+}
 
 // ─── Health Insight Card ─────────────────────────────────────────────────────
 function HealthInsightCard({
@@ -663,6 +741,35 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {/* ── REFILL ALERT STRIP ── */}
+        <RefillAlertStrip
+          medicines={medicines.filter(m => m.memberId === activeMember?.id && m.active)}
+          onCall={(medName) => {
+            const phone = activeMember?.phone?.replace(/\D/g, '');
+            if (!phone) {
+              showAlert(
+                'No Pharmacy Number',
+                `Add a phone number to ${activeMember?.name || "this member"}'s profile to call the pharmacy.`
+              );
+              return;
+            }
+            showAlert(
+              'Call Pharmacy',
+              `Refill needed for ${medName}. Call the stored number?`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Call',
+                  onPress: () =>
+                    Linking.openURL(`tel:${phone}`).catch(() =>
+                      showAlert('Call Failed', 'Unable to initiate call.')
+                    ),
+                },
+              ]
+            );
+          }}
+        />
+
         {/* Today's Schedule */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Today's Schedule</Text>
@@ -728,6 +835,100 @@ export default function DashboardScreen() {
     </View>
   );
 }
+
+// ─── Refill Strip Styles ─────────────────────────────────────────────────────
+const refillStyles = StyleSheet.create({
+  container: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.xl,
+    paddingTop: Spacing[3],
+    paddingBottom: Spacing[3],
+    marginBottom: Spacing[4],
+    borderWidth: 1.5,
+    borderColor: Colors.errorLight,
+    ...Shadow.md,
+    overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    paddingHorizontal: Spacing[4],
+    marginBottom: Spacing[3],
+  },
+  iconWrap: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: Colors.error,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: Typography.base,
+    fontWeight: Typography.bold,
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  countPill: {
+    backgroundColor: Colors.errorLight,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  countPillText: {
+    fontSize: Typography.xs,
+    fontWeight: Typography.bold,
+    color: Colors.error,
+  },
+  strip: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: Spacing[3],
+    paddingHorizontal: Spacing[4],
+    paddingVertical: 2,
+  },
+  card: {
+    width: 148,
+    backgroundColor: Colors.background,
+    borderRadius: Radius.lg,
+    padding: Spacing[3],
+    borderWidth: 1.5,
+    gap: Spacing[2],
+    justifyContent: 'space-between',
+  },
+  medName: {
+    fontSize: Typography.sm,
+    fontWeight: Typography.bold,
+    color: Colors.textPrimary,
+    lineHeight: 18,
+  },
+  countBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+  },
+  countBadgeText: {
+    fontSize: Typography.xs,
+    fontWeight: Typography.extrabold,
+  },
+  callBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.md,
+    marginTop: 2,
+  },
+  callBtnText: {
+    color: '#fff',
+    fontSize: Typography.xs,
+    fontWeight: Typography.bold,
+  },
+});
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
